@@ -100,7 +100,6 @@ $(document).ready(function() {
             'Woodcutting': '',
             'Mining': '',
             'Fishing': '',
-            'Cooking': 'cookReq',
             'Farming': 'farmReq',
             'Summoning': 'summoningReq'
         }
@@ -167,16 +166,41 @@ $(document).ready(function() {
             });
             skillLines.push.apply(skillLines, monsterStrs);
         }
+        // Add Cooking Sources
+        if (melvorData['items'][itemID].hasOwnProperty('recipeRequirements')) {
+            reqStr = 'Cooking (Level ' + melvorData['items'][itemID]['cookingLevel'] + ')';
+            melvorData['items'][itemID]['recipeRequirements'].forEach(function(recipe) {
+                skillLines.push(reqStr + ':');
+                recipe.forEach(function(recipeIngredient) {
+                    if (recipeIngredient['id'] >= 0) {
+                        skillLines.push(itemLink(recipeIngredient['id'], false, true) + ' x ' + recipeIngredient['qty'].toLocaleString())
+                    }
+                })
+            });
+        }
         // Add Thieving Sources
         if (melvorData['items'][itemID].hasOwnProperty('thievingSources')) {
-            // This section is OK for now because CURRENTLY you can't get an item from
-            // two Thieving sources. If this changes will have to change this section.
-            var targetSource = melvorData['items'][itemID]['thievingSources'][0];
-            skillLines.push('Thieving (Level ' + melvorData['thievingTargets'][targetSource['target']]['level'] + '):');
-            var pctChance = (targetSource['chance'][0]/targetSource['chance'][1]*100).toFixed(2)
-            // Format string as "<Drop Chance><Icon> (<Drop Fraction> - <Drop Percent>)"
-            // The first <Drop Chance> will be used to sort but then trimmed from final display.
-            skillLines.push(targetLink(targetSource['target'], false, true) + ' (' + targetSource['chance'][0] + '/' + targetSource['chance'][1] + ' - ' + pctChance + '%)');
+            // Do some ugly object stuff here JUST so we can sort by level when we add the lines to the output
+            thievingTempObjs = []
+            melvorData['items'][itemID]['thievingSources'].forEach(function(thievingSource) {
+                tempLines = []
+                tempLines.push('Thieving (Level ' + melvorData['thievingTargets'][thievingSource['target']]['level'] + '):');
+                var pctChance = (thievingSource['chance'][0]/thievingSource['chance'][1]*100).toFixed(2)
+                // Format string as "<Drop Chance><Icon> (<Drop Fraction> - <Drop Percent>)"
+                // The first <Drop Chance> will be used to sort but then trimmed from final display.
+                tempLines.push(targetLink(thievingSource['target'], false, true) + ' (' + thievingSource['chance'][0] + '/' + thievingSource['chance'][1] + ' - ' + pctChance + '%)');
+                thievingTempObjs.push({
+                    level: melvorData['thievingTargets'][thievingSource['target']]['level'],
+                    lines: tempLines
+                })
+            });
+            // Sort by level and then just add all lines in the new object order
+            thievingTempObjs.sort((a, b) => (a.level > b.level) ? 1 : -1)
+            thievingTempObjs.forEach(function(tempObj) {
+                tempObj.lines.forEach(function(line) {
+                    skillLines.push(line)
+                });
+            });
         }
         // Add Chest Sources
         if (melvorData['items'][itemID].hasOwnProperty('chestSources')) {
@@ -198,23 +222,19 @@ $(document).ready(function() {
             skillLines.push.apply(skillLines, chestStrs)
         }
         // Add Shop Sources
-        if (melvorData['items'][itemID].hasOwnProperty('buysFor') || melvorData['items'][itemID].hasOwnProperty('slayerCost') || melvorData['items'][itemID].hasOwnProperty('buysForItems') || melvorData['items'][itemID].hasOwnProperty('gloveID')) {
-            skillLines.push('Shop:');
-            shopStrs = []
-            if (melvorData['items'][itemID].hasOwnProperty('buysFor') && melvorData['items'][itemID]['buysFor'] > 0) {
-                skillLines.push(goldCoinsLink(false, true) + ' x ' + melvorData['items'][itemID]['buysFor'].toLocaleString())
-            }
-            if (melvorData['items'][itemID].hasOwnProperty('slayerCost')) {
-                skillLines.push(slayerCoinsLink(false, true) + ' x ' + melvorData['items'][itemID]['slayerCost'].toLocaleString())
-            }
-            if (melvorData['items'][itemID].hasOwnProperty('buysForItems')) {
-                melvorData['items'][itemID]['buysForItems'].forEach(function(material) {
+        if (melvorData['items'][itemID].hasOwnProperty('shopSources')) {
+            melvorData['items'][itemID]['shopSources'].forEach(function(shopListing) {
+                skillLines.push('Shop (' + shopListing['name'] + '):');
+                if (shopListing['cost']['gp'] > 0) {
+                    skillLines.push(goldCoinsLink(false, true) + ' x ' + shopListing['cost']['gp'].toLocaleString())
+                }
+                if (shopListing['cost']['slayerCoins'] > 0) {
+                    skillLines.push(slayerCoinsLink(false, true) + ' x ' + shopListing['cost']['slayerCoins'].toLocaleString())
+                }
+                shopListing['cost']['items'].forEach(function(material) {
                     skillLines.push(itemLink(material[0], false, true) + ' x ' + material[1].toLocaleString())
                 });
-            }
-            if (melvorData['items'][itemID].hasOwnProperty('gloveID')) {
-                skillLines.push(goldCoinsLink(false, true) + ' x ' + melvorData['glovesCost'][melvorData['items'][itemID]['gloveID']].toLocaleString())
-            }
+            });
         }
         // Add Dungeon Sources - https://github.com/MelvorIdle/Melvor-Wiki-Bot/blob/master/sources/main.js#L1300
         if (melvorData['items'][itemID].hasOwnProperty('dungeonSources')) {
@@ -337,9 +357,24 @@ $(document).ready(function() {
             //console.log("Raw:")
             //console.log(saveJSONRaw)
             saveJSON = {}
+            // This comes from serializeSave
+            // itemStats =
+            //      ns = "nested Vars"
+            //       3 = index of 'itemStats' entry from nestedVars[currentSaveVersion]
+            //       0 = Not sure. Maybe itemStatsData.all?
             saveJSON['itemStats'] = (saveJSONRaw['ns'] && saveJSONRaw['ns'][3] && saveJSONRaw['ns'][3][0]) ?? [];
+            // monsterStats =
+            //       s = "serialize Vars"
+            //      21 = index of 'monsterStats' entry from serialVars[currentSaveVersion]
             saveJSON['monsterStats'] = (saveJSONRaw['s'] && saveJSONRaw['s'][21]) ?? [];
+            // petUnlocked =
+            //       s = "serialize Vars"
+            //      22 = index of 'petUnlocked' entry from serialVars[currentSaveVersion]
             saveJSON['petUnlocked'] = (saveJSONRaw['s'] && saveJSONRaw['s'][22]) ?? [];
+            // accountGameVersion =
+            //      o = "other Vars"
+            //      4 = index of 'gameUpdateNotification' entry from otherVars[currentSaveVersion]
+            // This might actually be a bad entry to use, since it is probably used to popup the first time an old save is loaded on a new game version
             saveJSON['accountGameVersion'] = (saveJSONRaw['o'] && saveJSONRaw['o'][4].replaceAll('"', '')) ?? 'Unknown Game Version';
             //console.log("Fixed:")
             //console.log(saveJSON)
